@@ -1,0 +1,70 @@
+---
+# Section D: SSH hardening, fail2ban, least-privilege sudo.
+
+- name: Install fail2ban
+  apt:
+    name: fail2ban
+    state: present
+
+- name: Harden sshd_config
+  template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config
+    owner: root
+    group: root
+    mode: "0600"
+    validate: "sshd -t -f %s"
+  notify: restart sshd
+
+- name: Configure fail2ban jail for SSH
+  template:
+    src: jail.local.j2
+    dest: /etc/fail2ban/jail.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart fail2ban
+
+- name: Ensure fail2ban enabled
+  service:
+    name: fail2ban
+    state: started
+    enabled: true
+
+- name: Create ansible service account with restricted sudo
+  user:
+    name: ansible
+    groups: sudo
+    shell: /bin/bash
+    create_home: true
+    state: present
+
+- name: Push authorized_key for ansible user
+  authorized_key:
+    user: ansible
+    key: "{{ lookup('file', lookup('env','HOME') + '/.ssh/swiftpay_ansible.pub') }}"
+    state: present
+
+- name: Passwordless sudo ONLY for the ansible automation account
+  copy:
+    dest: /etc/sudoers.d/ansible
+    content: "ansible ALL=(ALL) NOPASSWD: ALL\n"
+    validate: "visudo -cf %s"
+    mode: "0440"
+
+- name: Disable password authentication entirely (key-only)
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "^#?PasswordAuthentication"
+    line: "PasswordAuthentication no"
+  notify: restart sshd
+
+- name: Ensure auditd running (file integrity / access auditing)
+  service:
+    name: auditd
+    state: started
+    enabled: true
+  register: auditd_result
+  failed_when: false
+  changed_when: auditd_result is succeeded and auditd_result.changed
+
