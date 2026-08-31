@@ -1,0 +1,16 @@
+# Never commit these
+*.pem
+*.key
+!roles/*/templates/*.j2
+*.retry
+docs/evidence/*.log
+
+# group_vars/all/vault.yml IS committed, but ONLY once encrypted with
+# `ansible-vault encrypt`. Always run `git diff --cached group_vars/all/vault.yml`
+# before your first commit to confirm it starts with $ANSIBLE_VAULT;1.1;AES256
+# and not plaintext.
+
+# Local junk
+.DS_Store
+__pycache__/
+*.pyc
