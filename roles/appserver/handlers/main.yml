@@ -1,0 +1,9 @@
+---
+- name: reload systemd
+  systemd:
+    daemon_reload: true
+
+- name: restart swiftpay-app
+  systemd:
+    name: swiftpay-app
+    state: restarted

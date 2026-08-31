@@ -1,0 +1,35 @@
+upstream app_backend {
+    {% for host in groups['app'] %}
+    server {{ hostvars[host].internal_ip }}:{{ app_port }} max_fails=2 fail_timeout=5s;
+    {% endfor %}
+}
+
+server {
+    listen {{ web_port }};
+    server_name {{ app_domain }};
+
+    # HAProxy already terminates TLS and does the http->https redirect for
+    # external clients; this endpoint just needs to answer HAProxy's checks
+    # and proxy through to the app tier.
+
+    location /healthz {
+        access_log off;
+        return 200 "ok\n";
+        add_header Content-Type text/plain;
+    }
+
+    location /static/ {
+        root /var/www/swiftpay;
+        expires 1h;
+    }
+
+    location / {
+        proxy_pass http://app_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 3s;
+        proxy_next_upstream error timeout http_502 http_503;
+    }
+}

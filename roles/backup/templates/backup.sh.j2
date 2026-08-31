@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Managed by Ansible — roles/backup. Runs as postgres via systemd timer.
+set -euo pipefail
+
+TS="$(date +%Y%m%d-%H%M%S)"
+BACKUP_DIR="{{ backup_dir }}"
+DB_NAME="{{ db_name }}"
+RETENTION_DAYS="{{ backup_retention_days }}"
+DUMP_FILE="${BACKUP_DIR}/swiftpay-${TS}.sql.gz"
+CONF_TAR="${BACKUP_DIR}/swiftpay-conf-${TS}.tar.gz"
+
+echo "[$(date)] Starting backup ${TS}"
+
+# 1. Database dump (custom text dump, gzip'd)
+pg_dump "${DB_NAME}" | gzip > "${DUMP_FILE}"
+
+# 2. Critical configuration (pg_hba/postgresql.conf) — helps re-derive
+#    replication + access rules even if Ansible repo were unavailable
+tar -czf "${CONF_TAR}" /etc/postgresql 2>/dev/null || true
+
+# 3. Off-host copy. Lab stand-in target: lb1 over rsync-over-ssh.
+#    Prod: replace with `aws s3 sync "${BACKUP_DIR}" s3://swiftpay-backups/`
+RSYNC_TARGET="{{ backup_offhost_user | default('ansible') }}@{{ hostvars[groups['lb'][0]].internal_ip }}:/var/backups/swiftpay-offsite/"
+rsync -az -e "ssh -p {{ ssh_port }} -o StrictHostKeyChecking=no" "${DUMP_FILE}" "${CONF_TAR}" "${RSYNC_TARGET}" \
+  || echo "[$(date)] WARNING: off-host copy failed, backup kept locally only"
+
+# 4. Rotate local backups older than retention window
+find "${BACKUP_DIR}" -name 'swiftpay-*.gz' -mtime "+${RETENTION_DAYS}" -delete
+
+echo "[$(date)] Backup ${TS} complete: ${DUMP_FILE}"

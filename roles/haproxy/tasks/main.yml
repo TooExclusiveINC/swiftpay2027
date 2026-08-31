@@ -1,0 +1,43 @@
+---
+- name: Install haproxy and openssl
+  apt:
+    name: [haproxy, openssl]
+    state: present
+
+- name: Create TLS cert directory
+  file:
+    path: /etc/haproxy/certs
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Generate self-signed cert (lab) — swap for certbot in prod with a real domain
+  command: >
+    openssl req -x509 -nodes -days 825 -newkey rsa:2048
+    -keyout /etc/haproxy/certs/swiftpay.key
+    -out /etc/haproxy/certs/swiftpay.crt
+    -subj "/CN={{ app_domain }}"
+  args:
+    creates: /etc/haproxy/certs/swiftpay.crt
+
+- name: Combine cert+key into haproxy pem bundle
+  shell: "cat /etc/haproxy/certs/swiftpay.crt /etc/haproxy/certs/swiftpay.key > /etc/haproxy/certs/swiftpay.pem"
+  args:
+    creates: /etc/haproxy/certs/swiftpay.pem
+
+- name: Deploy haproxy.cfg
+  template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "haproxy -c -f %s"
+  notify: restart haproxy
+
+- name: Enable and start haproxy
+  service:
+    name: haproxy
+    state: started
+    enabled: true

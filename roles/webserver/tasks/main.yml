@@ -1,0 +1,39 @@
+---
+- name: Install nginx
+  apt:
+    name: nginx
+    state: present
+
+- name: Remove default site
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: restart nginx
+
+- name: Deploy swiftpay nginx site
+  template:
+    src: swiftpay.conf.j2
+    dest: /etc/nginx/sites-available/swiftpay.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart nginx
+
+- name: Enable swiftpay site
+  file:
+    src: /etc/nginx/sites-available/swiftpay.conf
+    dest: /etc/nginx/sites-enabled/swiftpay.conf
+    state: link
+  notify: restart nginx
+
+- name: Enable and start nginx
+  service:
+    name: nginx
+    state: started
+    enabled: true
+
+- name: Confine nginx with AppArmor profile (usr.sbin.nginx) if present
+  command: aa-enforce /etc/apparmor.d/usr.sbin.nginx
+  register: aa_result
+  changed_when: "'Setting' in aa_result.stdout"
+  failed_when: false

@@ -1,0 +1,34 @@
+---
+# Non-secret global variables. Secrets live in vault.yml (ansible-vault encrypted).
+
+app_domain: "swiftpay.local"          # swap for a real domain to get Let's Encrypt certs
+app_port: 8000
+web_port: 80
+web_tls_port: 443
+db_name: swiftpay
+db_user: swiftpay_app
+db_port: 5432
+
+# SSH hardening
+# Requirement is "changed port OR fail2ban (or both)". We keep port 22 here
+# so the local Docker test harness's port-mapping stays simple (avoids a
+# chicken-and-egg problem where changing the port mid-playbook breaks the
+# very SSH connection Ansible is using) and rely on fail2ban + key-only +
+# no-root-login instead. For the real AWS build this is trivial to change:
+# set ssh_port to e.g. 2222 here and update the security group accordingly
+# (see scripts/aws_provision.sh comments) — both controls end up "or both".
+ssh_port: 22
+allowed_ssh_users: ["ansible"]
+
+# fail2ban
+fail2ban_bantime: 3600
+fail2ban_maxretry: 4
+
+# Backup
+backup_retention_days: 14
+backup_dir: /var/backups/swiftpay
+
+# Networking (used to build firewall allow-lists — matches docker-compose
+# subnet in test, and the AWS VPC CIDR in prod; override per-inventory)
+internal_cidr: "172.30.0.0/16"
+ansible_remote_tmp: /tmp/.ansible-${USER}/tmp

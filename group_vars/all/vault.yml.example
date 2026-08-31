@@ -1,0 +1,11 @@
+---
+# COPY this file to vault.yml, fill in real values, then encrypt it:
+#   cp group_vars/all/vault.yml.example group_vars/all/vault.yml
+#   ansible-vault encrypt group_vars/all/vault.yml
+# NEVER commit an unencrypted vault.yml. .gitignore already excludes it
+# only after encryption is out of scope of git tracking by name pattern —
+# double check `git status` before your first commit.
+
+vault_db_password: "REPLACE_ME_STRONG_PASSWORD"
+vault_db_replication_password: "REPLACE_ME_STRONG_PASSWORD_2"
+vault_app_secret_key: "REPLACE_ME_RANDOM_64_CHAR_STRING"

@@ -1,0 +1,39 @@
+; Generated (or hand-filled) after running scripts/aws_provision.sh
+; Replace the ansible_host IPs with the real public/private IPs printed
+; by that script. Web/App/DB tiers should use PRIVATE IPs — only lb1
+; needs a public IP reachable from the internet.
+
+[lb]
+lb1 ansible_host=<LB1_PUBLIC_IP> internal_ip=<LB1_PRIVATE_IP>
+
+[web]
+web1 ansible_host=<WEB1_PRIVATE_IP> internal_ip=<WEB1_PRIVATE_IP>
+web2 ansible_host=<WEB2_PRIVATE_IP> internal_ip=<WEB2_PRIVATE_IP>
+
+[app]
+app1 ansible_host=<APP1_PRIVATE_IP> internal_ip=<APP1_PRIVATE_IP>
+app2 ansible_host=<APP2_PRIVATE_IP> internal_ip=<APP2_PRIVATE_IP>
+
+[db]
+db1 ansible_host=<DB1_PRIVATE_IP> internal_ip=<DB1_PRIVATE_IP> pg_role=primary
+db2 ansible_host=<DB2_PRIVATE_IP> internal_ip=<DB2_PRIVATE_IP> pg_role=replica
+
+[webservers:children]
+web
+
+[appservers:children]
+app
+
+[databases:children]
+db
+
+[loadbalancers:children]
+lb
+
+[all:vars]
+ansible_user=ubuntu
+ansible_ssh_private_key_file=~/.ssh/swiftpay-aws.pem
+ansible_ssh_common_args='-o ProxyJump=ubuntu@<LB1_PUBLIC_IP>'
+; ^ web/app/db are in private subnets; jump through lb1 (which sits in the
+;   public subnet) to reach them. Remove this line if you gave every host
+;   a public IP instead (fine for the free-tier lab, less realistic).

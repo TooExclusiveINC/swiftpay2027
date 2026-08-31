@@ -1,0 +1,7 @@
+[Unit]
+Description=SwiftPay nightly backup (DB + config)
+
+[Service]
+Type=oneshot
+User=postgres
+ExecStart=/usr/local/bin/swiftpay-backup.sh

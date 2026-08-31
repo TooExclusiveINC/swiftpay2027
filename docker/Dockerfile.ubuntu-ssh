@@ -1,0 +1,29 @@
+# Ubuntu 22.04 with systemd + sshd, so Ansible can manage it exactly like
+# a real EC2 instance (systemd units, ufw, apt, etc. all behave the same).
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    systemd systemd-sysv openssh-server sudo python3 python3-apt \
+    iproute2 iptables curl ca-certificates \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Mask units that don't work / aren't needed in a container
+RUN cd /lib/systemd/system/sysinit.target.wants/ \
+    && ls | grep -v systemd-tmpfiles-setup | xargs rm -f 2>/dev/null || true
+
+RUN systemctl mask systemd-udevd.service systemd-udevd-kernel.socket \
+    systemd-udevd-control.socket getty.target || true
+
+RUN mkdir -p /run/sshd && \
+    useradd -m -s /bin/bash ansible && \
+    echo "ansible ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/ansible && \
+    mkdir -p /home/ansible/.ssh && chmod 700 /home/ansible/.ssh
+
+# Public key is bind-mounted in at runtime via docker-compose (see
+# docker-compose.yml) so the same key you use for AWS works here too.
+
+STOPSIGNAL SIGRTMIN+3
+VOLUME ["/sys/fs/cgroup"]
+CMD ["/sbin/init"]

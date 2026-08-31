@@ -1,0 +1,38 @@
+global
+    log /dev/log local0
+    maxconn 2000
+    tune.ssl.default-dh-param 2048
+
+defaults
+    log     global
+    mode    http
+    option  httplog
+    option  dontlognull
+    timeout connect 5s
+    timeout client  30s
+    timeout server  30s
+    retries 3
+
+# Plain HTTP: redirect everything to HTTPS
+frontend http_in
+    bind *:80
+    http-request redirect scheme https unless { ssl_fc }
+
+frontend https_in
+    bind *:443 ssl crt /etc/haproxy/certs/swiftpay.pem
+    default_backend web_nodes
+
+backend web_nodes
+    balance roundrobin
+    option httpchk GET /healthz
+    http-check expect status 200
+{% for host in groups['web'] %}
+    server {{ host }} {{ hostvars[host].internal_ip }}:{{ web_port }} check inter 2s fall 2 rise 2
+{% endfor %}
+
+# Stats page for demo purposes (bind to localhost only in real prod)
+listen stats
+    bind *:8404
+    stats enable
+    stats uri /stats
+    stats refresh 5s

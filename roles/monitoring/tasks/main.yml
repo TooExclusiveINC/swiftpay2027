@@ -1,0 +1,56 @@
+---
+# Lightweight: installs node_exporter on every host so a Prometheus/Grafana
+# stack (out of scope to run inside 7 free-tier VMs) can scrape them.
+# In the live demo, `curl localhost:9100/metrics` is enough to prove
+# monitoring surface exists; wiring a full Grafana dashboard is a stretch
+# goal noted in docs/architecture.md.
+
+- name: Download node_exporter
+  get_url:
+    url: https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-amd64.tar.gz
+    dest: /tmp/node_exporter.tar.gz
+    mode: "0644"
+
+- name: Extract node_exporter
+  unarchive:
+    src: /tmp/node_exporter.tar.gz
+    dest: /opt
+    remote_src: true
+    creates: /opt/node_exporter-1.8.2.linux-amd64
+
+- name: Symlink binary
+  file:
+    src: /opt/node_exporter-1.8.2.linux-amd64/node_exporter
+    dest: /usr/local/bin/node_exporter
+    state: link
+
+- name: Create node_exporter system user
+  user:
+    name: node_exporter
+    system: true
+    shell: /usr/sbin/nologin
+
+- name: Deploy systemd unit
+  copy:
+    dest: /etc/systemd/system/node_exporter.service
+    content: |
+      [Unit]
+      Description=Prometheus Node Exporter
+      After=network.target
+
+      [Service]
+      User=node_exporter
+      ExecStart=/usr/local/bin/node_exporter
+      Restart=on-failure
+      NoNewPrivileges=true
+
+      [Install]
+      WantedBy=multi-user.target
+    mode: "0644"
+
+- name: Enable and start node_exporter
+  systemd:
+    name: node_exporter
+    state: started
+    enabled: true
+    daemon_reload: true

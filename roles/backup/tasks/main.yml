@@ -1,0 +1,45 @@
+---
+# Section E: automated scheduled backups, stored off the source host.
+# Runs on db1 (primary) only. "Off the source host" = rsynced to lb1's disk
+# in the lab (stand-in for S3 / another host); swap rsync target for
+# `aws s3 sync` in prod — see docs/dr-runbook.md.
+
+- name: Create backup directory
+  file:
+    path: "{{ backup_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0750"
+  when: pg_role is defined and pg_role == "primary"
+
+- name: Ship backup script
+  template:
+    src: backup.sh.j2
+    dest: /usr/local/bin/swiftpay-backup.sh
+    owner: root
+    group: root
+    mode: "0750"
+  when: pg_role is defined and pg_role == "primary"
+
+- name: Ship systemd service for backup
+  template:
+    src: swiftpay-backup.service.j2
+    dest: /etc/systemd/system/swiftpay-backup.service
+    mode: "0644"
+  when: pg_role is defined and pg_role == "primary"
+
+- name: Ship systemd timer for nightly backup
+  template:
+    src: swiftpay-backup.timer.j2
+    dest: /etc/systemd/system/swiftpay-backup.timer
+    mode: "0644"
+  when: pg_role is defined and pg_role == "primary"
+
+- name: Enable and start backup timer
+  systemd:
+    name: swiftpay-backup.timer
+    state: started
+    enabled: true
+    daemon_reload: true
+  when: pg_role is defined and pg_role == "primary"

@@ -1,0 +1,79 @@
+name: swiftpay-lab
+
+x-host-common: &host-common
+  build:
+    context: .
+    dockerfile: Dockerfile.ubuntu-ssh
+  privileged: true          # required for systemd inside Docker
+  cgroup: host
+  tmpfs:
+    - /run
+    - /run/lock
+  volumes:
+    - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    - ~/.ssh/swiftpay_ansible.pub:/home/ansible/.ssh/authorized_keys:ro
+  networks:
+    swiftpay_net:
+
+services:
+  lb1:
+    <<: *host-common
+    hostname: lb1
+    ports: ["2201:22", "8080:80", "8443:443", "8404:8404"]
+    networks:
+      swiftpay_net:
+        ipv4_address: 172.30.0.10
+
+  web1:
+    <<: *host-common
+    hostname: web1
+    ports: ["2211:22"]
+    networks:
+      swiftpay_net:
+        ipv4_address: 172.30.0.21
+
+  web2:
+    <<: *host-common
+    hostname: web2
+    ports: ["2212:22"]
+    networks:
+      swiftpay_net:
+        ipv4_address: 172.30.0.22
+
+  app1:
+    <<: *host-common
+    hostname: app1
+    ports: ["2221:22"]
+    networks:
+      swiftpay_net:
+        ipv4_address: 172.30.0.31
+
+  app2:
+    <<: *host-common
+    hostname: app2
+    ports: ["2222:22"]
+    networks:
+      swiftpay_net:
+        ipv4_address: 172.30.0.32
+
+  db1:
+    <<: *host-common
+    hostname: db1
+    ports: ["2231:22"]
+    networks:
+      swiftpay_net:
+        ipv4_address: 172.30.0.41
+
+  db2:
+    <<: *host-common
+    hostname: db2
+    ports: ["2232:22"]
+    networks:
+      swiftpay_net:
+        ipv4_address: 172.30.0.42
+
+networks:
+  swiftpay_net:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16

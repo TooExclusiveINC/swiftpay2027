@@ -1,0 +1,51 @@
+---
+# Single entry point: `ansible-playbook site.yml`
+# rebuilds the entire SwiftPay environment from nothing but this repo.
+
+- name: Baseline every host
+  hosts: all
+  become: true
+  roles:
+    - common
+    - security
+    - monitoring
+
+- name: Firewall — apply LAST so SSH access rules from `security` are already
+        in place before we lock the network down (run after common+security,
+        before service roles so tier isolation is enforced from the start)
+  hosts: all
+  become: true
+  roles:
+    - firewall
+
+- name: Database tier — primary first, then replica
+  hosts: db
+  become: true
+  serial: 1
+  order: sorted
+  roles:
+    - database
+
+- name: Application tier
+  hosts: app
+  become: true
+  roles:
+    - appserver
+
+- name: Web tier
+  hosts: web
+  become: true
+  roles:
+    - webserver
+
+- name: Load balancer
+  hosts: lb
+  become: true
+  roles:
+    - haproxy
+
+- name: Backups (runs on db primary)
+  hosts: db
+  become: true
+  roles:
+    - backup

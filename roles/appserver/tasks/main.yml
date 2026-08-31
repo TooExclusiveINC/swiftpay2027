@@ -1,0 +1,71 @@
+---
+- name: Install python + venv tooling
+  apt:
+    name: [python3-venv, python3-pip, libpq-dev, build-essential]
+    state: present
+
+- name: Create dedicated, unprivileged service account for the app
+  user:
+    name: swiftpay_app
+    system: true
+    shell: /usr/sbin/nologin
+    home: /opt/swiftpay
+    create_home: true
+    group: swiftpay
+
+- name: Create app directory
+  file:
+    path: /opt/swiftpay/app
+    state: directory
+    owner: swiftpay_app
+    group: swiftpay
+    mode: "0750"
+
+- name: Ship application code
+  copy:
+    src: app.py
+    dest: /opt/swiftpay/app/app.py
+    owner: swiftpay_app
+    group: swiftpay
+    mode: "0640"
+
+- name: Ship requirements.txt
+  copy:
+    src: requirements.txt
+    dest: /opt/swiftpay/app/requirements.txt
+    owner: swiftpay_app
+    group: swiftpay
+    mode: "0640"
+
+- name: Create virtualenv and install deps
+  pip:
+    requirements: /opt/swiftpay/app/requirements.txt
+    virtualenv: /opt/swiftpay/venv
+    virtualenv_command: python3 -m venv
+
+- name: Deploy environment file (DB creds — from vault, never plaintext in git)
+  template:
+    src: swiftpay.env.j2
+    dest: /opt/swiftpay/app/swiftpay.env
+    owner: swiftpay_app
+    group: swiftpay
+    mode: "0600"
+  notify: restart swiftpay-app
+
+- name: Deploy systemd unit
+  template:
+    src: swiftpay-app.service.j2
+    dest: /etc/systemd/system/swiftpay-app.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd
+    - restart swiftpay-app
+
+- name: Enable and start swiftpay-app
+  systemd:
+    name: swiftpay-app
+    state: started
+    enabled: true
+    daemon_reload: true

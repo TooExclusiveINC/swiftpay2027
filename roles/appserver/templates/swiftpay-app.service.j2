@@ -1,0 +1,25 @@
+[Unit]
+Description=SwiftPay Portal application service
+After=network.target
+
+[Service]
+Type=simple
+User=swiftpay_app
+Group=swiftpay
+WorkingDirectory=/opt/swiftpay/app
+EnvironmentFile=/opt/swiftpay/app/swiftpay.env
+ExecStart=/opt/swiftpay/venv/bin/gunicorn -w 2 -b 0.0.0.0:{{ app_port }} app:app
+Restart=on-failure
+RestartSec=3
+
+# Least-privilege sandboxing
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/swiftpay/app
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
