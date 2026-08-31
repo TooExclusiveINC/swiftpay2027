@@ -1,0 +1,98 @@
+---
+# Section A/D: enforce tier isolation with a real firewall, not just trust.
+# Default-deny inbound, default-allow outbound, then punch narrow holes
+# per host group.
+
+- name: Install ufw
+  apt:
+    name: ufw
+    state: present
+
+- name: Reset ufw to known state
+  ufw:
+    state: reset
+
+- name: Default deny incoming
+  ufw:
+    direction: incoming
+    policy: deny
+
+- name: Default allow outgoing
+  ufw:
+    direction: outgoing
+    policy: allow
+
+- name: Allow SSH (hardened port) from internal network only
+  ufw:
+    rule: allow
+    port: "{{ ssh_port }}"
+    proto: tcp
+    src: "{{ internal_cidr }}"
+
+# --- Load balancer: only host that faces the public internet ---
+- name: "[lb] Allow public HTTP/HTTPS"
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop: ["80", "443"]
+  when: "'lb' in group_names"
+
+# HAProxy stats page (Section B: HA/LB demo) — without this rule ufw's
+# default-deny silently blocks port 8404, and curl/browser access to
+# /stats times out with no obvious error.
+- name: "[lb] Allow stats page from internal network only"
+  ufw:
+    rule: allow
+    port: "8404"
+    proto: tcp
+    src: "{{ internal_cidr }}"
+  when: "'lb' in group_names"
+
+# --- Web tier: only reachable from the LB, on port 80/443 ---
+- name: "[web] Allow HTTP/HTTPS only from load balancer"
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    src: "{{ hostvars[groups['lb'][0]].internal_ip }}"
+  loop: ["80", "443"]
+  when: "'web' in group_names"
+
+# --- App tier: only reachable from web tier, on app_port ---
+- name: "[app] Allow app_port only from web tier"
+  ufw:
+    rule: allow
+    port: "{{ app_port }}"
+    proto: tcp
+    src: "{{ hostvars[item].internal_ip }}"
+  loop: "{{ groups['web'] }}"
+  when: "'app' in group_names"
+
+# --- DB tier: only reachable from app tier, on db_port; replica also
+#     needs to talk to primary for streaming replication ---
+- name: "[db] Allow db_port only from app tier"
+  ufw:
+    rule: allow
+    port: "{{ db_port }}"
+    proto: tcp
+    src: "{{ hostvars[item].internal_ip }}"
+  loop: "{{ groups['app'] }}"
+  when: "'db' in group_names"
+
+- name: "[db] Allow db_port between db nodes for replication"
+  ufw:
+    rule: allow
+    port: "{{ db_port }}"
+    proto: tcp
+    src: "{{ hostvars[item].internal_ip }}"
+  loop: "{{ groups['db'] }}"
+  when: "'db' in group_names and item != inventory_hostname"
+
+- name: Enable ufw logging
+  ufw:
+    logging: "on"
+
+- name: Enable ufw
+  ufw:
+    state: enabled
