@@ -1,0 +1,25 @@
+data_directory = '/var/lib/postgresql/14/main'
+hba_file = '/etc/postgresql/14/main/pg_hba.conf'
+ident_file = '/etc/postgresql/14/main/pg_ident.conf'
+external_pid_file = '/var/run/postgresql/14-main.pid'
+# Managed by Ansible — roles/database
+listen_addresses = '*'
+port = {{ db_port }}
+max_connections = 100
+
+# Replication
+wal_level = replica
+max_wal_senders = 5
+max_replication_slots = 5
+hot_standby = on
+wal_keep_size = 512MB
+
+# Reasonable free-tier-friendly memory settings
+shared_buffers = 128MB
+work_mem = 4MB
+maintenance_work_mem = 32MB
+
+logging_collector = on
+log_directory = 'log'
+log_filename = 'postgresql-%Y-%m-%d.log'
+log_min_duration_statement = 500

@@ -1,0 +1,126 @@
+---
+- name: Install PostgreSQL
+  apt:
+    name: [postgresql, postgresql-contrib, python3-psycopg2]
+    state: present
+
+- name: Ensure postgresql is started (initial, before config changes)
+  service:
+    name: postgresql@14-main
+    state: started
+    enabled: true
+  register: pg_initial_start
+  failed_when: false
+
+- name: Find postgresql version dir
+  find:
+    paths: /etc/postgresql
+    file_type: directory
+  register: pg_dirs
+
+- set_fact:
+    pg_conf_dir: "{{ pg_dirs.files[0].path }}/main"
+
+- name: Deploy postgresql.conf (tuned for replication)
+  template:
+    src: postgresql.conf.j2
+    dest: "{{ pg_conf_dir }}/postgresql.conf"
+    owner: postgres
+    group: postgres
+    mode: "0644"
+  notify: restart postgresql
+
+- name: Deploy pg_hba.conf (only app tier + db peers may connect)
+  template:
+    src: pg_hba.conf.j2
+    dest: "{{ pg_conf_dir }}/pg_hba.conf"
+    owner: postgres
+    group: postgres
+    mode: "0640"
+  notify: restart postgresql
+
+- name: Flush handlers so config is live before we touch data
+  meta: flush_handlers
+
+# --- Primary-only setup ---
+- block:
+    - name: Create application database
+      community.general.postgresql_db:
+        name: "{{ db_name }}"
+      become_user: postgres
+    - name: Create application role
+      community.general.postgresql_user:
+        db: "{{ db_name }}"
+        name: "{{ db_user }}"
+        password: "{{ vault_db_password }}"
+        priv: "ALL"
+      become_user: postgres
+    - name: Create replication role
+      community.general.postgresql_user:
+        name: replicator
+        password: "{{ vault_db_replication_password }}"
+        role_attr_flags: REPLICATION,LOGIN
+      become_user: postgres
+    - name: Create demo accounts table + seed row (so /balance/<id> works in the demo)
+      community.general.postgresql_query:
+        db: "{{ db_name }}"
+        query: |
+          CREATE TABLE IF NOT EXISTS accounts (
+            id SERIAL PRIMARY KEY,
+            owner TEXT NOT NULL,
+            balance_cents BIGINT NOT NULL DEFAULT 0
+          );
+          INSERT INTO accounts (owner, balance_cents)
+          SELECT 'demo-customer', 500000
+          WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE id = 1);
+      become_user: postgres
+    - name: Grant table privileges on accounts to the app role
+      community.general.postgresql_privs:
+        db: "{{ db_name }}"
+        role: "{{ db_user }}"
+        type: table
+        objs: accounts
+        privs: SELECT,INSERT,UPDATE,DELETE
+      become_user: postgres
+  when: pg_role == "primary"
+
+# --- Replica-only setup: base backup from primary, then standby.signal ---
+- block:
+    - name: Stop postgresql on replica before pg_basebackup
+      service:
+        name: postgresql@14-main
+        state: stopped
+
+    - name: Wipe existing (empty) data dir before basebackup
+      file:
+        path: /var/lib/postgresql/{{ pg_version_dir | default('14') }}/main
+        state: absent
+      ignore_errors: true
+
+    - name: Determine primary host's address
+      set_fact:
+        pg_primary_addr: "{{ hostvars[item].internal_ip }}"
+      loop: "{{ groups['db'] }}"
+      when: hostvars[item].pg_role == "primary"
+
+    - name: "Take base backup from primary (idempotent: only if data dir absent)"
+      shell: >
+        PGPASSWORD={{ vault_db_replication_password }}
+        pg_basebackup -h {{ pg_primary_addr }}
+        -D /var/lib/postgresql/14/main -U replicator -Fp -Xs -P -R
+      args:
+        creates: /var/lib/postgresql/14/main/standby.signal
+      become_user: postgres
+
+    - name: Fix data dir ownership
+      file:
+        path: /var/lib/postgresql/14/main
+        owner: postgres
+        group: postgres
+        recurse: true
+
+    - name: Start postgresql on replica
+      service:
+        name: postgresql@14-main
+        state: started
+  when: pg_role == "replica"
