@@ -1,0 +1,107 @@
+====================================================================
+ SwiftPay Portal — Production Infrastructure Architecture Diagram
+====================================================================
+
+                              INTERNET
+                                 |
+                                 |  HTTPS (443) / HTTP (80, redirects)
+                                 v
+                     +-----------------------+
+                     |          lb1          |
+                     |   HAProxy (LB + TLS)  |
+                     |  - TLS termination     |
+                     |  - Health checks        |
+                     |  - Stats page :8404     |
+                     +-----------+-----------+
+                                 |
+                 +---------------+----------------+
+                 |                                |
+                 v                                v
+      +--------------------+            +--------------------+
+      |        web1        |            |        web2        |
+      |   Nginx (reverse   |            |   Nginx (reverse   |
+      |      proxy)        |            |      proxy)        |
+      |   /healthz check   |            |   /healthz check   |
+      +----------+---------+            +----------+---------+
+                 |                                 |
+                 +----------------+----------------+
+                                  |
+                   (upstream: both app nodes,
+                    load-balanced by nginx)
+                                  |
+                 +----------------+----------------+
+                 |                                 |
+                 v                                 v
+      +--------------------+            +--------------------+
+      |        app1        |            |        app2        |
+      |  Flask/gunicorn     |            |  Flask/gunicorn     |
+      |  systemd service    |            |  systemd service    |
+      |  dedicated svc acct |            |  dedicated svc acct |
+      +----------+---------+            +----------+---------+
+                 |                                 |
+                 +----------------+----------------+
+                                  |
+                       (app tier -> primary DB only)
+                                  |
+                                  v
+                     +-----------------------+
+                     |          db1          |
+                     |   PostgreSQL PRIMARY  |
+                     +-----------+-----------+
+                                  |
+                                  |  streaming replication
+                                  |  (pg_basebackup + WAL streaming)
+                                  v
+                     +-----------------------+
+                     |          db2          |
+                     |   PostgreSQL REPLICA  |
+                     |     (hot standby,      |
+                     |      read-only)         |
+                     +-----------------------+
+
+
+--------------------------------------------------------------------
+ FIREWALL / TIER ISOLATION (enforced by ufw on every host)
+--------------------------------------------------------------------
+
+  Internet  ----80/443---->  lb1                      (public)
+  lb1       ----80/443---->  web1, web2                (LB -> web)
+  web1,web2 ----8000------>  app1, app2                (web -> app)
+  app1,app2 ----5432------>  db1                       (app -> db primary)
+  db1       ----5432------>  db2                       (replication)
+  ssh (22)  <---internal--- all hosts, 172.30.0.0/16 only
+
+  Nothing else is permitted inbound on any host (default-deny).
+
+
+--------------------------------------------------------------------
+ SUPPORTING SERVICES (on every host)
+--------------------------------------------------------------------
+
+  - node_exporter :9100   (metrics, scrapeable by future Prometheus)
+  - fail2ban              (SSH brute-force protection)
+  - AppArmor               (mandatory access control, enforcing)
+  - auditd                 (syscall/file auditing)
+  - unattended-upgrades    (automatic security patching)
+
+  Backups (db1 only):
+    nightly pg_dump + config tar -> rsynced off-host to lb1
+    (stand-in for S3 in production) via swiftpay-backup.timer
+
+
+--------------------------------------------------------------------
+ SINGLE POINTS OF FAILURE (documented, not hidden)
+--------------------------------------------------------------------
+
+  * lb1        - single HAProxy node, no floating IP/keepalived
+                  (ACCEPTED - see docs/architecture.md for reasoning)
+  * single AZ  - all hosts in one availability zone on AWS
+                  (ACCEPTED - NAT gateway/multi-AZ costs break free tier)
+  * DB failover - manual promotion of db2, not automatic
+                  (PARTIALLY ADDRESSED - documented runbook exists)
+
+  Everything else (web tier, app tier) survives a single-node failure,
+  demonstrated live by stopping one node and confirming traffic keeps
+  flowing through the other.
+
+====================================================================
