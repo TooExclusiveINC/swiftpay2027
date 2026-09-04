@@ -59,6 +59,16 @@
   loop: ["80", "443"]
   when: "'web' in group_names"
 
+- name: "[web] Allow HTTP/HTTPS from Docker bridge gateway"
+  ufw:
+    rule: allow
+    direction: in
+    port: "{{ item }}"
+    proto: tcp
+    src: "172.30.0.1"
+  loop: ["80", "443"]
+  when: "'web' in group_names"
+
 # --- App tier: only reachable from web tier, on app_port ---
 - name: "[app] Allow app_port only from web tier"
   ufw:
@@ -67,6 +77,15 @@
     proto: tcp
     src: "{{ hostvars[item].internal_ip }}"
   loop: "{{ groups['web'] }}"
+  when: "'app' in group_names"
+
+- name: "[app] Allow app traffic from Docker bridge gateway"
+  ufw:
+    rule: allow
+    direction: in
+    port: "{{ app_port }}"
+    proto: tcp
+    src: "172.30.0.1"
   when: "'app' in group_names"
 
 # --- DB tier: only reachable from app tier, on db_port; replica also
@@ -88,6 +107,16 @@
     src: "{{ hostvars[item].internal_ip }}"
   loop: "{{ groups['db'] }}"
   when: "'db' in group_names and item != inventory_hostname"
+
+
+- name: "[db] Allow Docker bridge gateway to PostgreSQL"
+  ufw:
+    rule: allow
+    direction: in
+    port: "{{ db_port }}"
+    proto: tcp
+    src: "172.30.0.1"
+  when: "'db' in group_names"
 
 - name: Enable ufw logging
   ufw:

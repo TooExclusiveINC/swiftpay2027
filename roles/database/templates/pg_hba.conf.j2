@@ -8,11 +8,17 @@ local   all             all                                     peer
 host    {{ db_name }}   {{ db_user }}   {{ hostvars[host].internal_ip }}/32   scram-sha-256
 {% endfor %}
 
+# Docker bridge NAT source used by application connections
+host    {{ db_name }}   {{ db_user }}   172.30.0.1/32   scram-sha-256
+
 # DB peers -> replication only
 {% for host in groups['db'] %}
 {% if host != inventory_hostname %}
 host    replication     replicator      {{ hostvars[host].internal_ip }}/32   scram-sha-256
 {% endif %}
 {% endfor %}
+
+# Docker bridge NAT source used by db2 -> db1 replication
+host    replication     replicator      172.30.0.1/32                         scram-sha-256
 
 # Everything else: reject (implicit — no catch-all allow line below)

@@ -39,8 +39,9 @@
     mode: "0640"
   notify: restart postgresql
 
-- name: Flush handlers so config is live before we touch data
+- name: Flush handlers before primary database setup
   meta: flush_handlers
+  when: pg_role == "primary"
 
 # --- Primary-only setup ---
 - block:
@@ -91,11 +92,16 @@
         name: postgresql@14-main
         state: stopped
 
-    - name: Wipe existing (empty) data dir before basebackup
-      file:
+    - name: Check whether replica is already initialized
+      ansible.builtin.stat:
+        path: /var/lib/postgresql/14/main/standby.signal
+      register: replica_initialized
+
+    - name: Wipe existing data dir before basebackup
+      ansible.builtin.file:
         path: /var/lib/postgresql/{{ pg_version_dir | default('14') }}/main
         state: absent
-      ignore_errors: true
+      when: not replica_initialized.stat.exists
 
     - name: Determine primary host's address
       set_fact:
@@ -103,14 +109,18 @@
       loop: "{{ groups['db'] }}"
       when: hostvars[item].pg_role == "primary"
 
-    - name: "Take base backup from primary (idempotent: only if data dir absent)"
-      shell: >
+    - name: Take base backup from primary
+      ansible.builtin.shell: >
         PGPASSWORD={{ vault_db_replication_password }}
-        pg_basebackup -h {{ pg_primary_addr }}
-        -D /var/lib/postgresql/14/main -U replicator -Fp -Xs -P -R
+        pg_basebackup
+        -h {{ pg_primary_addr }}
+        -D /var/lib/postgresql/14/main
+        -U replicator
+        -Fp -Xs -P -R
       args:
         creates: /var/lib/postgresql/14/main/standby.signal
       become_user: postgres
+      no_log: true
 
     - name: Fix data dir ownership
       file:
@@ -118,6 +128,9 @@
         owner: postgres
         group: postgres
         recurse: true
+
+    - name: Flush replica PostgreSQL handlers after base backup
+      meta: flush_handlers
 
     - name: Start postgresql on replica
       service:
